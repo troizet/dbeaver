@@ -496,6 +496,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
         @Override
         public JDBCStatement prepareLookupStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner, @Nullable OracleTableBase object, @Nullable String objectName) throws SQLException {
             String tableOper = "=";
+            boolean isOracleVersionAtLeast9 = getDataSource().isAtLeastV9(); //Oracle 8 do not support explicit joins
 
             boolean hasAllAllTables = owner.getDataSource().isViewAvailable(session.getProgressMonitor(), null, "ALL_ALL_TABLES");
             String tablesSource = hasAllAllTables ? "ALL_TABLES" : "TABLES";
@@ -505,9 +506,10 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
                 " O.*,\n" +
                 tableTypeColumns + ",t.TABLESPACE_NAME,t.PARTITIONED,t.IOT_TYPE,t.IOT_NAME,t.TEMPORARY,t.SECONDARY,t.NESTED,t.NUM_ROWS\n" +
                 "FROM " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(), "OBJECTS") + " O\n" +
-                "LEFT OUTER JOIN " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), tablesSource) +
-                    " t ON (t.OWNER = O.OWNER AND t.TABLE_NAME = o.OBJECT_NAME)\n" +
-                "WHERE O.OWNER=? AND O.OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW')" +
+                    (isOracleVersionAtLeast9 ? "LEFT OUTER JOIN " : ", ") + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), tablesSource) + " t " +
+                    (isOracleVersionAtLeast9 ? "ON (t.OWNER = O.OWNER AND t.TABLE_NAME = o.OBJECT_NAME)\n" :
+                    "WHERE t.OWNER(+) = O.OWNER AND t.TABLE_NAME(+) = o.OBJECT_NAME\n") +
+                    (isOracleVersionAtLeast9 ? "WHERE " : "AND ") + "O.OWNER=? AND O.OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW')" +
                 (object == null && objectName == null ? "": " AND O.OBJECT_NAME" + tableOper + "?") +
                 (object instanceof OracleTable ? " AND O.OBJECT_TYPE='TABLE'" : "") +
                 (object instanceof OracleView ? " AND O.OBJECT_TYPE='VIEW'" : "") +
@@ -997,14 +999,23 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
         protected JDBCStatement prepareObjectsStatement(JDBCSession session, OracleSchema owner, OracleTablePhysical forTable)
             throws SQLException
         {
+            boolean isOracleVersionAtLeast9 = getDataSource().isAtLeastV9(); //Oracle 8 do not support explicit joins
             StringBuilder sql = new StringBuilder();
             sql.append("SELECT ").append(OracleUtils.getSysCatalogHint(owner.getDataSource())).append(" " +
                     "i.OWNER,i.INDEX_NAME,i.INDEX_TYPE,i.TABLE_OWNER,i.TABLE_NAME,i.UNIQUENESS,i.TABLESPACE_NAME,i.STATUS,i.NUM_ROWS,i.SAMPLE_SIZE,\n" +
                     "ic.COLUMN_NAME,ic.COLUMN_POSITION,ic.COLUMN_LENGTH,ic.DESCEND,iex.COLUMN_EXPRESSION\n" +
-                    "FROM " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(), "INDEXES") + " i\n" +
-                    "JOIN " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(), "IND_COLUMNS") + " ic ON ic.INDEX_OWNER=i.OWNER AND ic.INDEX_NAME=i.INDEX_NAME \n" +
-                    "LEFT OUTER JOIN " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(), "IND_EXPRESSIONS") + " iex ON iex.INDEX_OWNER=i.OWNER AND iex.INDEX_NAME=i.INDEX_NAME AND iex.COLUMN_POSITION=ic.COLUMN_POSITION\n" +
-                    "WHERE ");
+                    "FROM " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(), "INDEXES") + " i\n");
+            if (isOracleVersionAtLeast9) {
+                sql.append("JOIN " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(), "IND_COLUMNS") + " ic ON ic.INDEX_OWNER=i.OWNER AND ic.INDEX_NAME=i.INDEX_NAME \n" +
+                        "LEFT OUTER JOIN " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(), "IND_EXPRESSIONS") + " iex ON iex.INDEX_OWNER=i.OWNER AND iex.INDEX_NAME=i.INDEX_NAME AND iex.COLUMN_POSITION=ic.COLUMN_POSITION\n" +
+                        "WHERE ");
+            } else {
+                sql.append(", " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(), "IND_COLUMNS") + " ic, " +
+                        OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(), "IND_EXPRESSIONS") + " iex " +
+                        "WHERE ic.INDEX_OWNER=i.OWNER AND ic.INDEX_NAME=i.INDEX_NAME \n" +
+                        "AND iex.INDEX_OWNER(+)=i.OWNER AND iex.INDEX_NAME(+)=i.INDEX_NAME AND iex.COLUMN_POSITION(+)=ic.COLUMN_POSITION\n" +
+                        "AND ");
+            }
             if (forTable == null) {
                 sql.append("i.OWNER=?");
             } else {
