@@ -22,18 +22,18 @@ import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ext.generic.GenericConstants;
 import org.jkiss.dbeaver.ext.generic.model.*;
-import org.jkiss.dbeaver.model.DBPDataSourceContainer;
-import org.jkiss.dbeaver.model.DBPErrorAssistant;
-import org.jkiss.dbeaver.model.DBUtils;
+import org.jkiss.dbeaver.model.*;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCStatement;
 import org.jkiss.dbeaver.model.exec.plan.DBCQueryPlanner;
 import org.jkiss.dbeaver.model.impl.jdbc.JDBCConstants;
+import org.jkiss.dbeaver.model.impl.jdbc.JDBCDataSourceInfo;
 import org.jkiss.dbeaver.model.impl.jdbc.JDBCUtils;
 import org.jkiss.dbeaver.model.impl.jdbc.cache.JDBCBasicDataTypeCache;
 import org.jkiss.dbeaver.model.impl.jdbc.struct.JDBCDataType;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
+import org.jkiss.dbeaver.model.sql.SQLConstants;
 import org.jkiss.dbeaver.model.sql.SQLUtils;
 import org.jkiss.dbeaver.model.struct.DBSEntityConstraintType;
 import org.jkiss.dbeaver.model.struct.DBSObjectFilter;
@@ -660,6 +660,30 @@ public class GenericMetaModel {
         return new GenericUniqueKey(table, constraintName, null, constraintType, persisted);
     }
 
+    public GenericTableConstraintColumn[] createConstraintColumnsImpl(JDBCSession session,
+                                                                      GenericTableBase parent, GenericUniqueKey object, GenericMetaObject pkObject, JDBCResultSet dbResult) throws DBException {
+        String columnName = GenericUtils.safeGetStringTrimmed(pkObject, dbResult, JDBCConstants.COLUMN_NAME);
+        if (CommonUtils.isEmpty(columnName)) {
+            log.debug("Null primary key column for '" + object.getName() + "'");
+            return null;
+        }
+        if ((columnName.startsWith("[") && columnName.endsWith("]")) ||
+                (columnName.startsWith(SQLConstants.DEFAULT_IDENTIFIER_QUOTE) && columnName.endsWith(SQLConstants.DEFAULT_IDENTIFIER_QUOTE))) {
+            // [JDBC: SQLite] Escaped column name. Let's un-escape it
+            columnName = columnName.substring(1, columnName.length() - 1);
+        }
+        int keySeq = GenericUtils.safeGetInt(pkObject, dbResult, JDBCConstants.KEY_SEQ);
+
+        GenericTableColumn tableColumn = parent.getAttribute(session.getProgressMonitor(), columnName);
+        if (tableColumn == null) {
+            log.warn("Column '" + columnName + "' not found in table '" + parent.getFullyQualifiedName(DBPEvaluationContext.DDL) + "' for PK '" + object.getFullyQualifiedName(DBPEvaluationContext.DDL) + "'");
+            return null;
+        }
+
+        return new GenericTableConstraintColumn[] {
+                new GenericTableConstraintColumn(object, tableColumn, keySeq) };
+    }
+
     //////////////////////////////////////////////////////
     // Sequences
 
@@ -725,5 +749,11 @@ public class GenericMetaModel {
 
     public boolean supportsCheckConstraints() {
         return false;
+    }
+
+    public boolean supportsViews(@NotNull GenericDataSource dataSource) {
+        DBPDataSourceInfo dataSourceInfo = dataSource.getInfo();
+        return !(dataSourceInfo instanceof JDBCDataSourceInfo) ||
+            ((JDBCDataSourceInfo) dataSourceInfo).supportsViews();
     }
 }

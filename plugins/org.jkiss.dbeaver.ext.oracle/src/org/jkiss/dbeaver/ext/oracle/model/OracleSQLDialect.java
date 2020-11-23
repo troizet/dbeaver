@@ -40,7 +40,7 @@ import java.util.Arrays;
 /**
  * Oracle SQL dialect
  */
-class OracleSQLDialect extends JDBCSQLDialect {
+public class OracleSQLDialect extends JDBCSQLDialect {
 
     public static final String[] EXEC_KEYWORDS = new String[]{ "call" };
 
@@ -61,6 +61,12 @@ class OracleSQLDialect extends JDBCSQLDialect {
 
     public static final String[] ORACLE_BLOCK_HEADERS = new String[]{
         "DECLARE",
+        "PACKAGE"
+    };
+
+    public static final String[] ORACLE_INNER_BLOCK_PREFIXES = new String[]{
+        "AS",
+        "IS",
     };
 
     public static final String[] OTHER_TYPES_FUNCTIONS = {
@@ -78,6 +84,8 @@ class OracleSQLDialect extends JDBCSQLDialect {
         "PACKAGE",
         "FUNCTION",
         "TYPE",
+        "BODY",
+        "RECORD",
         "TRIGGER",
         "MATERIALIZED",
         "IF",
@@ -151,6 +159,7 @@ class OracleSQLDialect extends JDBCSQLDialect {
                 "INSTR2",
                 "INSTR4",
                 "LENGTHB",
+                "LENGTH",
 
                 //Datetime Functions:
                 "ADD_MONTHS",
@@ -350,6 +359,12 @@ class OracleSQLDialect extends JDBCSQLDialect {
         return ORACLE_BLOCK_HEADERS;
     }
 
+    @Nullable
+    @Override
+    public String[] getInnerBlockPrefixes() {
+        return ORACLE_INNER_BLOCK_PREFIXES;
+    }
+
     @NotNull
     @Override
     public String[] getExecuteKeywords() {
@@ -358,7 +373,7 @@ class OracleSQLDialect extends JDBCSQLDialect {
 
     @NotNull
     @Override
-    public MultiValueInsertMode getMultiValueInsertMode() {
+    public MultiValueInsertMode getDefaultMultiValueInsertMode() {
         return MultiValueInsertMode.INSERT_ALL;
     }
 

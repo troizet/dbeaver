@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-package org.jkiss.dbeaver.model.auth;
+package org.jkiss.dbeaver.model.runtime.load;
 
 /**
- * Auth context of application.
- * Holds auth tokens provided by app authentication.
+ * Lazy loading visualizer extensions
  */
-public interface DBAAuthContext {
+public interface ILoadVisualizerExt {
 
-    DBAAuthToken[] getSavedTokens();
+    // Called after load complete and after error resolve
+    void finalizeLoading();
 
 }

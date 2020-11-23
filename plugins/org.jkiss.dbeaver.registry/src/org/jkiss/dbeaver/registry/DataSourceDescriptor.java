@@ -103,6 +103,8 @@ public class DataSourceDescriptor
         {SystemVariablesResolver.VAR_APP_VERSION, "application version"},
         {SystemVariablesResolver.VAR_LOCAL_IP, "local IP address"},
     };
+    public static final String CATEGORY_SERVER = "Server";
+    public static final String CATEGORY_DRIVER = "Driver";
 
     @NotNull
     private final DBPDataSourceRegistry registry;
@@ -281,6 +283,7 @@ public class DataSourceDescriptor
         return storage;
     }
 
+    @Property(viewable = true, order = 3)
     @NotNull
     @Override
     public DBPDataSourceOrigin getOrigin() {
@@ -1266,13 +1269,13 @@ public class DataSourceDescriptor
         return driver.getId() + "-" + Long.toHexString(System.currentTimeMillis()) + "-" + Long.toHexString(rnd);
     }
 
-    @Property(viewable = true, order = 20, category = "Driver")
+    @Property(viewable = true, order = 20, category = CATEGORY_DRIVER)
     public String getPropertyDriverType()
     {
         return driver.getName();
     }
 
-    @Property(order = 3, category = "Server")
+    @Property(order = 30, category = CATEGORY_SERVER)
     public String getPropertyAddress()
     {
         StringBuilder addr = new StringBuilder();
@@ -1285,20 +1288,20 @@ public class DataSourceDescriptor
         return addr.toString();
     }
 
-    @Property(order = 4, category = "Server")
+    @Property(order = 31, category = CATEGORY_SERVER)
     public String getPropertyDatabase()
     {
         return connectionInfo.getDatabaseName();
     }
 
-    @Property(order = 5, category = "Server")
+    @Property(order = 32, category = CATEGORY_SERVER)
     public String getPropertyURL()
     {
         return connectionInfo.getUrl();
     }
 
     @Nullable
-    @Property(order = 6, category = "Server")
+    @Property(order = 33, category = CATEGORY_SERVER)
     public String getPropertyServerName()
     {
         if (dataSource != null) {
@@ -1312,7 +1315,7 @@ public class DataSourceDescriptor
     }
 
     @Nullable
-    @Property(order = 7, category = "Server")
+    @Property(order = 34, category = CATEGORY_SERVER)
     public Map<String, Object> getPropertyServerDetails()
     {
         if (dataSource != null) {
@@ -1322,7 +1325,7 @@ public class DataSourceDescriptor
     }
 
     @Nullable
-    @Property(order = 21, category = "Driver")
+    @Property(order = 21, category = CATEGORY_DRIVER)
     public String getPropertyDriver()
     {
         if (dataSource != null) {
@@ -1461,11 +1464,14 @@ public class DataSourceDescriptor
 
     public static boolean askForPassword(@NotNull final DataSourceDescriptor dataSourceContainer, @Nullable final DBWHandlerConfiguration networkHandler, final boolean passwordOnly)
     {
+        DBPConnectionConfiguration actualConfig = dataSourceContainer.getActualConnectionConfiguration();
+        DBPConnectionConfiguration connConfig = dataSourceContainer.getConnectionConfiguration();
+
         final String prompt = networkHandler != null ?
             NLS.bind(RegistryMessages.dialog_connection_auth_title_for_handler, networkHandler.getTitle()) :
             "'" + dataSourceContainer.getName() + RegistryMessages.dialog_connection_auth_title; //$NON-NLS-1$
-        final String user = networkHandler != null ? networkHandler.getUserName() : dataSourceContainer.getConnectionConfiguration().getUserName();
-        final String password = networkHandler != null ? networkHandler.getPassword() : dataSourceContainer.getConnectionConfiguration().getUserPassword();
+        final String user = networkHandler != null ? networkHandler.getUserName() : actualConfig.getUserName();
+        final String password = networkHandler != null ? networkHandler.getPassword() : actualConfig.getUserPassword();
 
         DBPAuthInfo authInfo = DBWorkbench.getPlatformUI().promptUserCredentials(prompt, user, password, passwordOnly, !dataSourceContainer.isTemporary());
         if (authInfo == null) {
@@ -1478,15 +1484,26 @@ public class DataSourceDescriptor
             }
             networkHandler.setPassword(authInfo.getUserPassword());
             networkHandler.setSavePassword(authInfo.isSavePassword());
-            dataSourceContainer.getConnectionConfiguration().updateHandler(networkHandler);
+            actualConfig.updateHandler(networkHandler);
+
+            if (authInfo.isSavePassword() && connConfig != actualConfig) {
+                // Save changes in real connection info
+                connConfig.updateHandler(networkHandler);
+            }
         } else {
             if (!passwordOnly) {
-                dataSourceContainer.getConnectionConfiguration().setUserName(authInfo.getUserName());
+                actualConfig.setUserName(authInfo.getUserName());
             }
-            dataSourceContainer.getConnectionConfiguration().setUserPassword(authInfo.getUserPassword());
+            actualConfig.setUserPassword(authInfo.getUserPassword());
             dataSourceContainer.setSavePassword(authInfo.isSavePassword());
         }
         if (authInfo.isSavePassword()) {
+            if (authInfo.isSavePassword() && connConfig != actualConfig) {
+                if (!passwordOnly) {
+                    connConfig.setUserName(authInfo.getUserName());
+                }
+                connConfig.setUserPassword(authInfo.getUserPassword());
+            }
             // Update connection properties
             dataSourceContainer.getRegistry().updateDataSource(dataSourceContainer);
         }

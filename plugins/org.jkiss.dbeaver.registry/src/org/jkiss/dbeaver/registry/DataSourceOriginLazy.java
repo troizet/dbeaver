@@ -18,10 +18,10 @@ package org.jkiss.dbeaver.registry;
 
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
-import org.jkiss.dbeaver.model.DBIcon;
-import org.jkiss.dbeaver.model.DBPDataSourceOrigin;
-import org.jkiss.dbeaver.model.DBPDataSourceOriginProvider;
-import org.jkiss.dbeaver.model.DBPImage;
+import org.jkiss.dbeaver.DBException;
+import org.jkiss.dbeaver.model.*;
+import org.jkiss.dbeaver.model.auth.DBASessionContext;
+import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 
 import java.util.Map;
 
@@ -40,8 +40,14 @@ class DataSourceOriginLazy implements DBPDataSourceOrigin
 
     @NotNull
     @Override
-    public String getId() {
+    public String getType() {
         return originId;
+    }
+
+    @Nullable
+    @Override
+    public String getSubType() {
+        return null;
     }
 
     @NotNull
@@ -67,9 +73,15 @@ class DataSourceOriginLazy implements DBPDataSourceOrigin
         return originProperties;
     }
 
+    @Nullable
+    @Override
+    public DBPObject getObjectDetails(@NotNull DBRProgressMonitor monitor, @NotNull DBASessionContext sessionContext, @NotNull DBPDataSourceContainer dataSource) throws DBException {
+        return resolveRealOrigin().getObjectDetails(monitor, sessionContext, dataSource);
+    }
+
     @Override
     public String toString() {
-        return getId();
+        return getType();
     }
 
     @NotNull

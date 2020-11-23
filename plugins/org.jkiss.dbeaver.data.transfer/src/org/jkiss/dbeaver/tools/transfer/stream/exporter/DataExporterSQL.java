@@ -66,14 +66,16 @@ public class DataExporterSQL extends StreamExporterAbstract {
     private boolean lineBeforeRows = true;
     private String tableName;
     private DBDAttributeBinding[] columns;
+    private boolean oneLineEntry;
 
     private final String KEYWORD_INSERT_INTO = "INSERT INTO";
     private final String KEYWORD_VALUES = "VALUES";
     private final String KEYWORD_INTO = "INTO";
-    private final String KEYWORD_INSERT_ALL = "INSERT ALL";
+    private final static String KEYWORD_INSERT_ALL = "INSERT ALL";
     private final String KEYWORD_SELECT_FROM_DUAL = "SELECT 1 FROM DUAL";
     private final static String KEYWORD_UPDATE_OR = "UPDATE OR";
-    private final static String KEYWORD_UPSERT = "UPSERT INTO";
+    private final static String KEYWORD_UPSERT_INTO = "UPSERT INTO";
+    private final static String KEYWORD_REPLACE_INTO = "REPLACE INTO";
     private final static String KEYWORD_DUPLICATE_KEY = "ON DUPLICATE KEY UPDATE";
     private final static String KEYWORD_ON_CONFLICT = "ON CONFLICT";
 
@@ -86,8 +88,10 @@ public class DataExporterSQL extends StreamExporterAbstract {
 
     enum InsertKeyword {
         INSERT("INSERT"),
+        INSERT_ALL(KEYWORD_INSERT_ALL),
         UPDATE(KEYWORD_UPDATE_OR),
-        UPSERT(KEYWORD_UPSERT),
+        UPSERT(KEYWORD_UPSERT_INTO),
+        REPLACE(KEYWORD_REPLACE_INTO),
         ON_DUPLICATE(KEYWORD_DUPLICATE_KEY),
         ON_CONFLICT(KEYWORD_ON_CONFLICT);
         private String value;
@@ -144,7 +148,6 @@ public class DataExporterSQL extends StreamExporterAbstract {
         }
 
         insertKeyword = InsertKeyword.fromValue(CommonUtils.toString(properties.get(PROP_UPSERT)));
-        //insertKeyword = CommonUtils.valueOf(InsertKeyword.class, CommonUtils.toString(properties.get(PROP_KEYWORD_CASE)), InsertKeyword.INSERT);
         onConflictExpression = CommonUtils.toString(properties.get(PROP_ON_CONFLICT));
     }
 
@@ -170,49 +173,52 @@ public class DataExporterSQL extends StreamExporterAbstract {
     @Override
     public void exportRow(DBCSession session, DBCResultSet resultSet, Object[] row) throws DBException, IOException {
         PrintWriter out = getWriter();
-        SQLDialect.MultiValueInsertMode insertMode = rowsInStatement == 1 ? SQLDialect.MultiValueInsertMode.NOT_SUPPORTED : getMultiValueInsertMode();
-        if (insertMode == SQLDialect.MultiValueInsertMode.NOT_SUPPORTED) {
-            rowsInStatement = 1;
-        }
+        oneLineEntry = rowsInStatement == 1;
         int columnsSize = columns.length;
         boolean firstRow = false;
-        if (insertMode == SQLDialect.MultiValueInsertMode.INSERT_ALL) {
+        if (insertKeyword == InsertKeyword.INSERT_ALL) {
             sqlBuffer.append(identifierCase.transform(KEYWORD_INSERT_ALL));
         }
-        if (insertMode == SQLDialect.MultiValueInsertMode.NOT_SUPPORTED || insertMode == SQLDialect.MultiValueInsertMode.INSERT_ALL || rowCount % rowsInStatement == 0) {
+        if (oneLineEntry || insertKeyword == InsertKeyword.INSERT_ALL || rowCount % rowsInStatement == 0) {
             sqlBuffer.setLength(0);
             if (rowCount > 0) {
-                if (insertMode == SQLDialect.MultiValueInsertMode.PLAIN) {
-                    sqlBuffer.append(");");
-                } else if (insertMode == SQLDialect.MultiValueInsertMode.GROUP_ROWS) {
+                //if (insertMode == SQLDialect.MultiValueInsertMode.PLAIN) {
+                //    sqlBuffer.append(");");
+                if (!oneLineEntry && insertKeyword != InsertKeyword.INSERT_ALL) {
                     if (!CommonUtils.isEmpty(onConflictExpression)) {
                         addOnConflictExpression(out);
                     }
                     sqlBuffer.append(";");
-                } else if (insertMode == SQLDialect.MultiValueInsertMode.INSERT_ALL && rowCount % rowsInStatement == 0) {
+                } else if (insertKeyword == InsertKeyword.INSERT_ALL && rowCount % rowsInStatement == 0) {
                     sqlBuffer.append("\n").append(identifierCase.transform(KEYWORD_SELECT_FROM_DUAL)).append(";");
                 }
                 if (lineBeforeRows) {
                     sqlBuffer.append(rowDelimiter);
                 }
             }
-            if (insertKeyword == InsertKeyword.UPDATE) {
-                sqlBuffer.append(identifierCase.transform(KEYWORD_UPDATE_OR)).append(" ");
-            }
-            if (insertKeyword == InsertKeyword.UPSERT) {
-                sqlBuffer.append(identifierCase.transform(KEYWORD_UPSERT));
-            } else if (insertMode == SQLDialect.MultiValueInsertMode.INSERT_ALL) {
-                if (rowCount % rowsInStatement == 0) {
-                    sqlBuffer.append(identifierCase.transform(KEYWORD_INSERT_ALL)).append("\n");
-                }
-                sqlBuffer.append("\t").append(identifierCase.transform(KEYWORD_INTO));
-            } else {
-                sqlBuffer.append(identifierCase.transform(KEYWORD_INSERT_INTO));
+            switch (insertKeyword) {
+                case UPDATE:
+                    sqlBuffer.append(identifierCase.transform(KEYWORD_UPDATE_OR)).append(" ").append(identifierCase.transform(KEYWORD_INSERT_INTO));
+                    break;
+                case UPSERT:
+                    sqlBuffer.append(identifierCase.transform(KEYWORD_UPSERT_INTO));
+                    break;
+                case REPLACE:
+                    sqlBuffer.append(identifierCase.transform(KEYWORD_REPLACE_INTO));
+                    break;
+                default:
+                    if (insertKeyword == InsertKeyword.INSERT_ALL) {
+                        if (rowCount % rowsInStatement == 0) {
+                            sqlBuffer.append(identifierCase.transform(KEYWORD_INSERT_ALL)).append("\n");
+                        }
+                        sqlBuffer.append("\t").append(identifierCase.transform(KEYWORD_INTO));
+                    } else {
+                        sqlBuffer.append(identifierCase.transform(KEYWORD_INSERT_INTO));
+                    }
             }
             sqlBuffer.append(" ").append(tableName).append(" (");
             boolean hasColumn = false;
-            for (int i = 0; i < columnsSize; i++) {
-                DBDAttributeBinding column = columns[i];
+            for (DBDAttributeBinding column : columns) {
                 if (isSkipColumn(column)) {
                     continue;
                 }
@@ -224,22 +230,22 @@ public class DataExporterSQL extends StreamExporterAbstract {
             }
             sqlBuffer.append(") ");
             sqlBuffer.append(identifierCase.transform(KEYWORD_VALUES));
-            if (insertMode != SQLDialect.MultiValueInsertMode.GROUP_ROWS) {
+            if (oneLineEntry || insertKeyword == InsertKeyword.INSERT_ALL) {
                 sqlBuffer.append(" (");
             }
-            if (rowsInStatement > 1 && lineBeforeRows && insertMode != SQLDialect.MultiValueInsertMode.INSERT_ALL) {
+            if (rowsInStatement > 1 && lineBeforeRows && insertKeyword != InsertKeyword.INSERT_ALL) {
                 sqlBuffer.append(rowDelimiter);
             }
             out.write(sqlBuffer.toString());
             firstRow = true;
         }
-        if (insertMode != SQLDialect.MultiValueInsertMode.NOT_SUPPORTED && !firstRow) {
+        if (!oneLineEntry && !firstRow) {
             out.write(",");
             if (lineBeforeRows) {
                 out.write(rowDelimiter);
             }
         }
-        if (insertMode == SQLDialect.MultiValueInsertMode.GROUP_ROWS) {
+        if (!oneLineEntry && insertKeyword != InsertKeyword.INSERT_ALL) {
             if (lineBeforeRows) {
                 out.write("\t");
             }
@@ -309,13 +315,13 @@ public class DataExporterSQL extends StreamExporterAbstract {
                 if (needQuotes) out.write('\'');
             }
         }
-        if (insertMode != SQLDialect.MultiValueInsertMode.PLAIN) {
+        //if (insertMode != SQLDialect.MultiValueInsertMode.PLAIN) {
             out.write(")");
-        }
-        if (!CommonUtils.isEmpty(onConflictExpression) && insertMode == SQLDialect.MultiValueInsertMode.NOT_SUPPORTED) {
+        //}
+        if (!CommonUtils.isEmpty(onConflictExpression) && oneLineEntry) {
             addOnConflictExpression(out);
         }
-        if (insertMode == SQLDialect.MultiValueInsertMode.NOT_SUPPORTED) {
+        if (oneLineEntry) {
             out.write(";");
         }
     }
@@ -331,25 +337,15 @@ public class DataExporterSQL extends StreamExporterAbstract {
     @Override
     public void exportFooter(DBRProgressMonitor monitor) {
         PrintWriter out = getWriter();
-        switch (getMultiValueInsertMode()) {
-            case GROUP_ROWS:
-                if (rowCount > 0) {
-                    addOnConflictExpression(out);
-                    out.write(";");
-                }
-                break;
-            case PLAIN:
-                if (rowCount > 0) {
-                    out.write(");");
-                }
-                break;
-            case INSERT_ALL:
-                if (rowCount > 0) {
-                    out.write("\n" + identifierCase.transform(KEYWORD_SELECT_FROM_DUAL) + ";");
-                }
-                break;
-            default:
-                break;
+        if (insertKeyword == InsertKeyword.INSERT_ALL) {
+            if (rowCount > 0) {
+                out.write("\n" + identifierCase.transform(KEYWORD_SELECT_FROM_DUAL) + ";");
+            }
+        } else if (!oneLineEntry){
+            if (rowCount > 0) {
+                addOnConflictExpression(out);
+                out.write(";");
+            }
         }
     }
 
@@ -387,12 +383,12 @@ public class DataExporterSQL extends StreamExporterAbstract {
         }
     }
 
-    private SQLDialect.MultiValueInsertMode getMultiValueInsertMode() {
+    /*private SQLDialect.MultiValueInsertMode getDefaultMultiValueInsertMode() {
         SQLDialect.MultiValueInsertMode insertMode = SQLDialect.MultiValueInsertMode.NOT_SUPPORTED;
         if (dialect != null && rowsInStatement != 1) {
-            insertMode = dialect.getMultiValueInsertMode();
+            insertMode = dialect.getDefaultMultiValueInsertMode();
         }
         return insertMode;
-    }
+    }*/
 
 }

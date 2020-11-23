@@ -25,10 +25,19 @@ import java.util.Map;
  * Configuration origin.
  * It can be local configuration or some cloud provider.
  */
-public interface DBPDataSourceOrigin {
+public interface DBPDataSourceOrigin extends DBPObjectWithDetails<DBPDataSourceContainer> {
 
+    /**
+     * Origin type. Unique
+     */
     @NotNull
-    String getId();
+    String getType();
+
+    /**
+     * Origin sub type
+     */
+    @Nullable
+    String getSubType();
 
     @NotNull
     String getDisplayName();
